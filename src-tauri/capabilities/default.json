@@ -6,8 +6,18 @@
   "permissions": [
     "core:default",
     "sql:default",
+    "core:window:allow-create",
+    "core:window:allow-close",
+    "core:app:allow-exit",
     "sql:allow-execute",
     "sql:allow-select",
-    "sql:allow-load"
+    "sql:allow-load",
+    {
+      "identifier": "http:default",
+      "allow": [
+        "https://script.google.com/macros/s/*",
+        "https://script.googleusercontent.com/macros/s/*"
+      ]
+    }
   ]
 }

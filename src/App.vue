@@ -1,160 +1,168 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { ref, onMounted, onUnmounted } from 'vue';
+import { check } from '@tauri-apps/plugin-updater';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { exit } from '@tauri-apps/api/app';
+import DashboardView from './views/DashboardView.vue';
+import QrGeneratorView from './views/QrGeneratorView.vue';
 
-const greetMsg = ref("");
-const name = ref("");
+// Tab state management
+const currentTab = ref<'dashboard' | 'qr'>('dashboard');
 
-async function greet() {
-  // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  greetMsg.value = await invoke("greet", { name: name.value });
+// Exit Modal Guard State
+const showExitModal = ref(false);
+let unlistenClose: (() => void) | null = null;
+
+// Background Auto-Updater check on application launch
+async function checkForUpdates() {
+  try {
+    const update = await check();
+    if (update) {
+      console.log(`Update available: ${update.version}`);
+      await update.downloadAndInstall();
+    }
+  } catch (error) {
+    console.error('Failed to check for desktop updates:', error);
+  }
 }
+
+// Intercept window close requests (e.g., top-right 'X' button or print overlay)
+async function setupCloseGuard() {
+  try {
+    const appWindow = getCurrentWindow();
+    
+    unlistenClose = await appWindow.onCloseRequested((event) => {
+      // 1. Intercept and block default window destruction
+      event.preventDefault();
+      
+      // 2. Open confirmation modal
+      showExitModal.value = true;
+    });
+  } catch (error) {
+    console.error('Failed to set up close guard listener:', error);
+  }
+}
+
+// Called when user clicks "Ya, Keluar" in the modal
+async function confirmExit() {
+  showExitModal.value = false;
+  
+  try {
+    // Cleanly terminates the application process via core:app:allow-exit
+    await exit(0);
+  } catch (err) {
+    console.error('Process exit failed, destroying window fallback:', err);
+    const appWindow = getCurrentWindow();
+    await appWindow.destroy();
+  }
+}
+
+// Called when user clicks "Batal"
+function cancelExit() {
+  showExitModal.value = false;
+}
+
+onMounted(async () => {
+  checkForUpdates();
+  await setupCloseGuard();
+});
+
+onUnmounted(() => {
+  if (unlistenClose) unlistenClose();
+});
 </script>
 
 <template>
-  <main class="container">
-    <h1>Welcome to Tauri + Vue</h1>
+  <main class="relative min-h-screen bg-slate-50 font-sans text-slate-800 antialiased flex flex-col select-none">
+    <!-- Top Navigation Switcher (Hidden during printing) -->
+    <header class="bg-[#1c3323] text-white px-6 py-2.5 flex items-center justify-between border-b border-emerald-900 print:hidden shrink-0">
+      <div class="flex items-center space-x-3">
+        <div class="w-6 h-6 rounded bg-white/20 border border-white/30 flex items-center justify-center text-white font-bold text-[10px]">
+          OA
+        </div>
+        <span class="text-xs font-bold tracking-wide">OASIS Inspection System</span>
+      </div>
 
-    <div class="row">
-      <a href="https://vite.dev" target="_blank">
-        <img src="/vite.svg" class="logo vite" alt="Vite logo" />
-      </a>
-      <a href="https://tauri.app" target="_blank">
-        <img src="/tauri.svg" class="logo tauri" alt="Tauri logo" />
-      </a>
-      <a href="https://vuejs.org/" target="_blank">
-        <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
-      </a>
+      <nav class="flex space-x-2 text-xs">
+        <button 
+          @click="currentTab = 'dashboard'" 
+          :class="[
+            currentTab === 'dashboard' 
+              ? 'bg-[#2a4732] text-white font-bold border-b-2 border-amber-400' 
+              : 'text-slate-300 hover:text-white hover:bg-[#233f2b]'
+          ]"
+          class="px-3 py-1.5 rounded-t-md transition flex items-center space-x-1.5"
+        >
+          <span>Dasbor Utama</span>
+        </button>
+
+        <button 
+          @click="currentTab = 'qr'" 
+          :class="[
+            currentTab === 'qr' 
+              ? 'bg-[#2a4732] text-white font-bold border-b-2 border-amber-400' 
+              : 'text-slate-300 hover:text-white hover:bg-[#233f2b]'
+          ]"
+          class="px-3 py-1.5 rounded-t-md transition flex items-center space-x-1.5"
+        >
+          <span>Cetak QR Code</span>
+        </button>
+      </nav>
+    </header>
+
+    <!-- Main View Rendering Area -->
+    <div class="flex-1 min-h-0">
+      <DashboardView v-if="currentTab === 'dashboard'"/>
+      <QrGeneratorView v-else-if="currentTab === 'qr'"/>
     </div>
-    <p>Click on the Tauri, Vite, and Vue logos to learn more.</p>
 
-    <form class="row" @submit.prevent="greet">
-      <input id="greet-input" v-model="name" placeholder="Enter a name..." />
-      <button type="submit">Greet</button>
-    </form>
-    <p>{{ greetMsg }}</p>
+    <!-- Exit Confirmation Modal Backdrop -->
+    <div 
+      v-if="showExitModal" 
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in print:hidden"
+    >
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-sm w-full p-6 text-center space-y-4">
+        
+        <!-- Warning Icon -->
+        <div class="w-12 h-12 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto text-xl font-bold">
+          ⚠️
+        </div>
+
+        <!-- Text Content -->
+        <div class="space-y-1">
+          <h3 class="text-lg font-extrabold text-slate-900">Keluar dari Aplikasi?</h3>
+          <p class="text-xs text-slate-500 leading-relaxed">
+            Apakah Anda yakin ingin menutup aplikasi Sistem Inspeksi OASIS?
+          </p>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex items-center space-x-3 pt-2">
+          <button 
+            @click="cancelExit" 
+            class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition"
+          >
+            Batal
+          </button>
+          <button 
+            @click="confirmExit" 
+            class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-xl shadow-sm transition"
+          >
+            Ya, Keluar
+          </button>
+        </div>
+
+      </div>
+    </div>
   </main>
 </template>
 
-<style scoped>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #249b73);
-}
-
-</style>
 <style>
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
 }
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
+.animate-fade-in {
+  animation: fadeIn 0.15s ease-out forwards;
 }
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
-
 </style>
