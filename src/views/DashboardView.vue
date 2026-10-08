@@ -26,7 +26,7 @@ interface SpreadsheetInspectionRow {
 // Reactive States
 const isSyncing = ref(false);
 const syncMessage = ref('');
-const searchQuery = ref('');
+//const searchQuery = ref('');
 const loading = ref(false);
 
 // Reactive Database Data
